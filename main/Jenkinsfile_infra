@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION = 'ap-south-1'
+        CLUSTER_NAME = 'EKS-1'
+        
+    }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git url: 'https://github.com/Tarun-Tiwari10052001/Microservice.git', branch: 'main'
+            }
+        }
+
+        stage('Install Prerequisites') {
+            steps {
+                dir('main') {
+                    steps {
+                        sh '''
+                        chmod +x install_prerequisites.sh
+                        ./install_prerequisites.sh
+                        '''
+                    }
+                }
+            }    
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                dir("terraform") {
+                    sh '''
+                    terraform init
+                    terraform validate
+                    terraform apply -auto-approve
+                    '''
+                }
+            }
+        }
+
+        stage('Setup EKS RBAC') {
+            steps {
+                dir ('main') {
+                    steps {
+                        sh '''
+                        chmod +x eks_rbac_setup.sh
+                        ./eks_rbac_setup.sh
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline Execution Complete'
+        }
+    }
+}

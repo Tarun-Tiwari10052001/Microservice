@@ -1,0 +1,171 @@
+pipeline {
+  agent any
+
+  environment {
+    DOCKER_REGISTRY = "ttiwari1005"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git credentialsId: 'git-creds', url: 'https://github.com/Tarun-Tiwari10052001/Microservice.git'
+      }
+    }
+
+    stage('Build, Scan & Push Images') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'docker-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+        }
+
+        script {
+          parallel(
+            AdService: {
+              dir('adservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/adservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/adservice:latest || true
+                  docker push $DOCKER_REGISTRY/adservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            CartService: {
+              dir('cartservice/src') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/cartservice:latest -f Dockerfile .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/cartservice:latest || true
+                  docker push $DOCKER_REGISTRY/cartservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            CheckoutService: {
+              dir('checkoutservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/checkoutservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/checkoutservice:latest || true
+                  docker push $DOCKER_REGISTRY/checkoutservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            CurrencyService: {
+              dir('currencyservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/currencyservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/currencyservice:latest || true
+                  docker push $DOCKER_REGISTRY/currencyservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            EmailService: {
+              dir('emailservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/emailservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/emailservice:latest || true
+                  docker push $DOCKER_REGISTRY/emailservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            Frontend: {
+              dir('frontend') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/frontend:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/frontend:latest || true
+                  docker push $DOCKER_REGISTRY/frontend:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            RecommendationService: {
+              dir('recommendationservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/recommendationservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/recommendationservice:latest || true
+                  docker push $DOCKER_REGISTRY/recommendationservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            ShippingService: {
+              dir('shippingservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/shippingservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/shippingservice:latest || true
+                  docker push $DOCKER_REGISTRY/shippingservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            PaymentService: {
+              dir('paymentservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/paymentservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/paymentservice:latest || true
+                  docker push $DOCKER_REGISTRY/paymentservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            ProductCatalogService: {
+              dir('productcatalogservice') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/productcatalogservice:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/productcatalogservice:latest || true
+                  docker push $DOCKER_REGISTRY/productcatalogservice:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            },
+            LoadGenerator: {
+              dir('loadgenerator') {
+                sh '''
+                  docker build -t $DOCKER_REGISTRY/loadgenerator:latest .
+                  trivy image --exit-code 0 --format table -o trivy-report.txt $DOCKER_REGISTRY/loadgenerator:latest || true
+                  docker push $DOCKER_REGISTRY/loadgenerator:latest
+                '''
+                archiveArtifacts artifacts: 'trivy-report.txt', allowEmptyArchive: true
+              }
+            }
+          )
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo '✅ Deployment complete.'
+      emailext(
+        subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+        body: """\
+          Good news! The pipeline succeeded.
+
+          Job: ${env.JOB_NAME}
+          Build Number: ${env.BUILD_NUMBER}
+          Build URL: ${env.BUILD_URL}
+        """,
+        to: 'taruntiwari7011452978@gmail.com'
+      )
+    }
+    failure {
+      echo 'Build or deploy failed!'
+      emailext(
+        subject: "FAILURE: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
+        body: """\
+          Unfortunately, the pipeline failed.
+
+          Job: ${env.JOB_NAME}
+          Build Number: ${env.BUILD_NUMBER}
+          Build URL: ${env.BUILD_URL}
+
+          Please check the console output for details.
+        """,
+        to: 'taruntiwari7011452978@gmail.com'
+      )
+    }
+  }
+}

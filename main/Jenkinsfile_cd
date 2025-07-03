@@ -1,0 +1,27 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+           steps {
+             git credentialsId: 'git-creds', url: 'https://github.com/Tarun-Tiwari10052001/Microservice.git'
+           }
+         }
+        stage('Deploy To Kubernetes') {
+            steps {
+                withKubeCredentials(kubectlCredentials: [[caCertificate: '', clusterName: 'EKS-1', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', serverUrl: 'https://8BD1A00388B61BE1C4456567FE5B64D2.gr7.ap-south-1.eks.amazonaws.com']]) {
+                    sh "kubectl apply -f main/deployment-service.yml"
+                    
+                }
+            }
+        }
+        
+        stage('verify Deployment') {
+            steps {
+                withKubeCredentials(kubectlCredentials: [[caCertificate: '', clusterName: 'EKS-1', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', serverUrl: 'https://8BD1A00388B61BE1C4456567FE5B64D2.gr7.ap-south-1.eks.amazonaws.com']]) {
+                    sh "kubectl get svc -n webapps"
+                }
+            }
+        }
+    }
+}
