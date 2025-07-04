@@ -6,7 +6,6 @@ pipeline {
         AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
         AWS_DEFAULT_REGION = 'ap-south-1'
         CLUSTER_NAME = 'EKS-1'
-        
     }
 
     stages {
@@ -19,12 +18,10 @@ pipeline {
         stage('Install Prerequisites') {
             steps {
                 dir('main') {
-                    steps {
-                        sh '''
-                        chmod +x install_prerequisites.sh
-                        ./install_prerequisites.sh
-                        '''
-                    }
+                    sh '''
+                    chmod +x install_prerequisites.sh
+                    ./install_prerequisites.sh
+                    '''
                 }
             }    
         }
@@ -43,13 +40,11 @@ pipeline {
 
         stage('Setup EKS RBAC') {
             steps {
-                dir ('main') {
-                    steps {
-                        sh '''
-                        chmod +x eks_rbac_setup.sh
-                        ./eks_rbac_setup.sh
-                        '''
-                    }
+                dir('main') {
+                    sh '''
+                    chmod +x eks_rbac_setup.sh
+                    ./eks_rbac_setup.sh
+                    '''
                 }
             }
         }
