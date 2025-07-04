@@ -13,7 +13,7 @@ is_cluster_ready() {
     --query "cluster.status" \
     --output text)
 
-  [[ "$STATUS" == "ACTIVE" ]]
+  [ "$STATUS" = "ACTIVE" ]
 }
 
 # Wait loop
