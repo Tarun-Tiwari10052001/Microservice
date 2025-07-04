@@ -24,9 +24,13 @@ done
 
 echo "Cluster is ACTIVE. Running kubectl"
 
+# Creating ns
+echo "creating ns"
+kubectl create ns webapps
+
 # create sa and role
 echo "creating sa"
-kubectl apply -f sa.yml
+kubectl apply -f sa.yaml
 echo "creating role"
 kubectl apply -f role.yaml
 echo "rolebinding"
