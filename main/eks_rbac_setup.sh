@@ -1,6 +1,6 @@
 # cluster 
 
-CLUSTER_NAME=$(terraform -chdir=/var/lib/jenkins/workspace/tarn/terraform output -raw cluster_name)
+CLUSTER_NAME=$(terraform -chdir=../terraform output -raw cluster_name)
 REGION="ap-south-1"
 
 echo "Updating kubeconfig..."
