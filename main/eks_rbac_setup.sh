@@ -35,5 +35,4 @@ echo "creating role"
 kubectl apply -f role.yaml
 echo "rolebinding"
 kubectl apply -f rolebinding.yaml
-sleep 60
 kubectl apply -f secret.yaml
