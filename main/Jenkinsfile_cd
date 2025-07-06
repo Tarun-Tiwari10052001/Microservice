@@ -1,26 +1,37 @@
 pipeline {
     agent any
+    environment {
+        AWS_ACCESS_KEY_ID = credentials('aws-access-key-id')
+        AWS_SECRET_ACCESS_KEY = credentials('aws-secret-access-key')
+        AWS_DEFAULT_REGION = 'ap-south-1'
+        CLUSTER_NAME = 'EKS-1'
+    }
 
     stages {
         stage('Checkout') {
            steps {
              git credentialsId: 'git-creds', url: 'https://github.com/Tarun-Tiwari10052001/Microservice.git'
            }
-         }
+        }
+        stage('update kubeconfig') {
+            steps {
+                
+                    sh "aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_DEFAULT_REGION"
+            }
+        }
         stage('Deploy To Kubernetes') {
             steps {
-                withKubeCredentials(kubectlCredentials: [[caCertificate: '', clusterName: 'EKS-1', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', serverUrl: 'https://8BD1A00388B61BE1C4456567FE5B64D2.gr7.ap-south-1.eks.amazonaws.com']]) {
-                    sh "kubectl apply -f main/deployment-service.yml"
+                sh "kubectl apply -f main/deployment-service.yml"
                     
-                }
+                
             }
         }
         
         stage('verify Deployment') {
             steps {
-                withKubeCredentials(kubectlCredentials: [[caCertificate: '', clusterName: 'EKS-1', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', serverUrl: 'https://8BD1A00388B61BE1C4456567FE5B64D2.gr7.ap-south-1.eks.amazonaws.com']]) {
+                
                     sh "kubectl get svc -n webapps"
-                }
+                
             }
         }
     }
