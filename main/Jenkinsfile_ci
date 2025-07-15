@@ -138,7 +138,7 @@ pipeline {
 
   post {
     success {
-      echo '✅ Deployment complete.'
+      echo 'Deployment complete.'
       emailext(
         subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
         body: """\
