@@ -9,7 +9,7 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        git credentialsId: 'git-creds', url: 'https://github.com/Tarun-Tiwari10052001/Microservice.git'
+        git credentialsId: 'git-cred1', url: 'https://github.com/Tarun-Tiwari10052001/Microservice.git'
       }
     }
 
