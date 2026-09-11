@@ -1,0 +1,90 @@
+name: Microservices CI/CD # Defines the GitHub Actions workflow name
+
+on:
+  push:
+    branches:
+      - main # Runs automatically when code is pushed to the main branch
+  pull_request:
+    branches:
+      - main # Runs automatically for pull requests targeting main
+
+env:
+  DOCKER_REGISTRY: ttiwari1005 # Docker Hub username/namespace used for image names
+
+jobs:
+  build-scan-push:
+    runs-on: ubuntu-latest # Uses GitHub-hosted Linux runner; Docker is already available
+
+    strategy:
+      fail-fast: false # Allows other services to continue if one service fails
+      matrix:
+        include:
+          - name: adservice
+            path: adservice
+            dockerfile: Dockerfile
+          - name: cartservice
+            path: cartservice/src
+            dockerfile: Dockerfile
+          - name: checkoutservice
+            path: checkoutservice
+            dockerfile: Dockerfile
+          - name: currencyservice
+            path: currencyservice
+            dockerfile: Dockerfile
+          - name: emailservice
+            path: emailservice
+            dockerfile: Dockerfile
+          - name: frontend
+            path: frontend
+            dockerfile: Dockerfile
+          - name: recommendationservice
+            path: recommendationservice
+            dockerfile: Dockerfile
+          - name: shippingservice
+            path: shippingservice
+            dockerfile: Dockerfile
+          - name: paymentservice
+            path: paymentservice
+            dockerfile: Dockerfile
+          - name: productcatalogservice
+            path: productcatalogservice
+            dockerfile: Dockerfile
+          - name: loadgenerator
+            path: loadgenerator
+            dockerfile: Dockerfile
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Downloads the current GitHub repository; no GitHub credential is required
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3 # Enables modern Docker builds and layer caching
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3 # Authenticates the runner with Docker Hub
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }} # Reads Docker Hub username from GitHub Actions secret
+          password: ${{ secrets.DOCKERHUB_TOKEN }} # Reads Docker Hub access token from GitHub Actions secret
+
+      - name: Build Docker image
+        working-directory: ${{ matrix.path }} # Changes into the service directory before building
+        run: |
+          docker build \
+            --file "${{ matrix.dockerfile }}" \
+            --tag "${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest" \
+            . # Builds the service image using its Dockerfile
+
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master # Installs and runs Trivy without requiring manual installation
+
+      - name: Scan Docker image
+        uses: aquasecurity/trivy-action@master # Scans the built image for vulnerabilities
+        with:
+          image-ref: ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest # Image to scan
+          format: table # Produces a human-readable vulnerability report
+          severity: CRITICAL,HIGH # Checks the most important vulnerability levels
+          exit-code: '0' # Does not fail the pipeline because the original Jenkins pipeline also continued after scanning
+
+      - name: Push Docker image
+        run: |
+          docker push "${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest" # Pushes the successfully built image to Docker Hub
