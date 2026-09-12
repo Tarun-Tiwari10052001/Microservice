@@ -1,91 +1,234 @@
-name: Microservices CI/CD # Defines the GitHub Actions workflow name
+name: Microservices CI/CD # Defines the complete CI/CD workflow
 
 on:
   push:
     branches:
-      - main # Runs automatically when code is pushed to the main branch
-  workflow_dispatch:
-  pull_request:
-    branches:
-      - main # Runs automatically for pull requests targeting main
+      - main # Runs the pipeline whenever main receives a push
+
+  workflow_dispatch: # Allows manual execution from the GitHub Actions UI
 
 env:
-  DOCKER_REGISTRY: ttiwari1005 # Docker Hub username/namespace used for image names
+  AWS_REGION: ap-south-1 # AWS region containing the EKS cluster
+  EKS_CLUSTER_NAME: microservices-eks # Name of the EKS cluster
+  DOCKER_REGISTRY: ttiwari1005 # Docker Hub namespace
+  IMAGE_TAG: ${{ github.sha }} # Uses immutable Git commit SHA instead of latest
+
+permissions:
+  contents: read # Allows GitHub Actions to checkout repository code
+  id-token: write # Allows GitHub Actions to request an AWS OIDC token
 
 jobs:
+
   build-scan-push:
-    runs-on: ubuntu-latest # Uses GitHub-hosted Linux runner; Docker is already available
+    name: Build, Scan and Push ${{ matrix.name }} # Displays service-specific job names
+    runs-on: ubuntu-latest # Uses GitHub-hosted Ubuntu runner
 
     strategy:
-      fail-fast: false # Allows other services to continue if one service fails
+      fail-fast: false # Other services continue even if one service fails
       matrix:
         include:
           - name: adservice
             path: adservice
-            dockerfile: Dockerfile
           - name: cartservice
             path: cartservice/src
-            dockerfile: Dockerfile
           - name: checkoutservice
             path: checkoutservice
-            dockerfile: Dockerfile
           - name: currencyservice
             path: currencyservice
-            dockerfile: Dockerfile
           - name: emailservice
             path: emailservice
-            dockerfile: Dockerfile
           - name: frontend
             path: frontend
-            dockerfile: Dockerfile
           - name: recommendationservice
             path: recommendationservice
-            dockerfile: Dockerfile
           - name: shippingservice
             path: shippingservice
-            dockerfile: Dockerfile
           - name: paymentservice
             path: paymentservice
-            dockerfile: Dockerfile
           - name: productcatalogservice
             path: productcatalogservice
-            dockerfile: Dockerfile
           - name: loadgenerator
             path: loadgenerator
-            dockerfile: Dockerfile
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4 # Downloads the current GitHub repository; no GitHub credential is required
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3 # Enables modern Docker builds and layer caching
+      - name: Checkout source code
+        uses: actions/checkout@v4 # Downloads the repository source code
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3 # Authenticates the runner with Docker Hub
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3 # Enables optimized Docker builds
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3 # Authenticates with Docker Hub
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }} # Reads Docker Hub username from GitHub Actions secret
-          password: ${{ secrets.DOCKERHUB_TOKEN }} # Reads Docker Hub access token from GitHub Actions secret
+          username: ${{ secrets.DOCKERHUB_USERNAME }} # Docker Hub username stored as GitHub secret
+          password: ${{ secrets.DOCKERHUB_TOKEN }} # Docker Hub access token stored as GitHub secret
 
       - name: Build Docker image
-        working-directory: ${{ matrix.path }} # Changes into the service directory before building
+        working-directory: ${{ matrix.path }} # Builds from the individual microservice directory
         run: |
           docker build \
-            --file "${{ matrix.dockerfile }}" \
-            --tag "${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest" \
-            . # Builds the service image using its Dockerfile
-
-      - name: Install Trivy
-        uses: aquasecurity/trivy-action@master # Installs and runs Trivy without requiring manual installation
+            --tag ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:${{ env.IMAGE_TAG }} \
+            --tag ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest \
+            . # Creates immutable SHA image and latest image
 
       - name: Scan Docker image
-        uses: aquasecurity/trivy-action@master # Scans the built image for vulnerabilities
+        uses: aquasecurity/trivy-action@master # Runs Trivy vulnerability scanning
         with:
-          image-ref: ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest # Image to scan
-          format: table # Produces a human-readable vulnerability report
-          severity: CRITICAL,HIGH # Checks the most important vulnerability levels
-          exit-code: '0' # Does not fail the pipeline because the original Jenkins pipeline also continued after scanning
+          image-ref: ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:${{ env.IMAGE_TAG }} # Scans the immutable image
+          format: table # Displays vulnerabilities as a readable table
+          severity: CRITICAL,HIGH # Checks high and critical vulnerabilities
+          exit-code: '0' # Reports vulnerabilities without stopping this learning pipeline
 
-      - name: Push Docker image
+      - name: Push immutable image
         run: |
-          docker push "${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest" # Pushes the successfully built image to Docker Hub
+          docker push ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:${{ env.IMAGE_TAG }} # Pushes commit-specific image
+
+      - name: Push latest image
+        run: |
+          docker push ${{ env.DOCKER_REGISTRY }}/${{ matrix.name }}:latest # Pushes latest image tag
+
+  deploy:
+    name: Deploy to Amazon EKS # Deployment job
+    needs: build-scan-push # Deployment starts only after all image jobs complete successfully
+    runs-on: ubuntu-latest # Uses temporary GitHub-hosted runner
+
+    environment:
+      name: production # Associates deployment with GitHub production environment
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Downloads Kubernetes manifests
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4 # Exchanges GitHub OIDC token for short-lived AWS credentials
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }} # IAM role trusted by GitHub OIDC
+          aws-region: ${{ env.AWS_REGION }} # AWS region for EKS
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity # Confirms the GitHub runner successfully authenticated with AWS
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }} # Creates kubeconfig for the EKS cluster
+
+      - name: Verify EKS connection
+        run: |
+          kubectl cluster-info # Confirms kubectl can communicate with EKS
+          kubectl get nodes # Displays EKS worker nodes
+
+      - name: Deploy Kubernetes manifests
+        run: |
+          kubectl apply -f kubernetes/ # Applies Kubernetes resources from the repository
+
+      - name: Update microservice images
+        run: |
+          kubectl -n online-boutique set image deployment/adservice adservice=${{ env.DOCKER_REGISTRY }}/adservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/cartservice cartservice=${{ env.DOCKER_REGISTRY }}/cartservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/checkoutservice checkoutservice=${{ env.DOCKER_REGISTRY }}/checkoutservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/currencyservice currencyservice=${{ env.DOCKER_REGISTRY }}/currencyservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/emailservice emailservice=${{ env.DOCKER_REGISTRY }}/emailservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/frontend frontend=${{ env.DOCKER_REGISTRY }}/frontend:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/recommendationservice recommendationservice=${{ env.DOCKER_REGISTRY }}/recommendationservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/shippingservice shippingservice=${{ env.DOCKER_REGISTRY }}/shippingservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/paymentservice paymentservice=${{ env.DOCKER_REGISTRY }}/paymentservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/productcatalogservice productcatalogservice=${{ env.DOCKER_REGISTRY }}/productcatalogservice:${{ env.IMAGE_TAG }}
+          kubectl -n online-boutique set image deployment/loadgenerator loadgenerator=${{ env.DOCKER_REGISTRY }}/loadgenerator:${{ env.IMAGE_TAG }}
+
+      - name: Wait for deployments
+        run: |
+          kubectl -n online-boutique rollout status deployment/adservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/cartservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/checkoutservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/currencyservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/emailservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/frontend --timeout=180s
+          kubectl -n online-boutique rollout status deployment/recommendationservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/shippingservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/paymentservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/productcatalogservice --timeout=180s
+          kubectl -n online-boutique rollout status deployment/loadgenerator --timeout=180s
+
+      - name: Verify pods
+        run: |
+          kubectl -n online-boutique get pods -o wide # Shows deployed pods and their nodes
+          kubectl -n online-boutique get deployments # Shows deployment availability
+          kubectl -n online-boutique get services # Shows Kubernetes services
+
+  smoke-test:
+    name: Production Smoke Test # Validates the deployed application
+    needs: deploy # Runs only after successful deployment
+    runs-on: ubuntu-latest # Uses GitHub-hosted runner
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Downloads repository files
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4 # Provides temporary AWS credentials
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }} # AWS IAM role used by GitHub OIDC
+          aws-region: ${{ env.AWS_REGION }} # AWS region
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }} # Connects kubectl to EKS
+
+      - name: Check frontend service
+        run: |
+          kubectl -n online-boutique get service frontend # Gets frontend service information
+
+      - name: Check application pods
+        run: |
+          kubectl -n online-boutique get pods # Confirms application pods are running
+
+      - name: Application health verification
+        run: |
+          kubectl -n online-boutique get pods \
+            --field-selector=status.phase=Running # Confirms running pods exist
+
+  monitoring:
+    name: Deployment Monitoring # Performs post-deployment monitoring checks
+    needs: smoke-test # Starts after smoke testing
+    runs-on: ubuntu-latest # Uses GitHub-hosted runner
+
+    steps:
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4 # Provides short-lived AWS credentials
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }} # AWS IAM role
+          aws-region: ${{ env.AWS_REGION }} # AWS region
+
+      - name: Configure kubectl
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }} # Connects to EKS
+
+      - name: Kubernetes health snapshot
+        run: |
+          kubectl -n online-boutique get pods -o wide # Shows pod health and node placement
+          kubectl -n online-boutique get deployments # Shows desired and available replicas
+          kubectl -n online-boutique get services # Shows service endpoints
+
+      - name: Check unhealthy pods
+        run: |
+          UNHEALTHY=$(kubectl -n online-boutique get pods --no-headers | awk '$3 != "Running" && $3 != "Completed" {print $1}') # Finds pods not currently healthy
+          if [ -n "$UNHEALTHY" ]; then
+            echo "Unhealthy pods detected:"
+            echo "$UNHEALTHY"
+            exit 1
+          fi # Fails monitoring when unhealthy pods are detected
+
+      - name: Deployment completed
+        run: |
+          echo "CI/CD pipeline completed successfully." # Final pipeline status
